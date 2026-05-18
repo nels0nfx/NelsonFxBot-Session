@@ -394,8 +394,9 @@ app.get('/pairing', async (req, res) => {
       },
       logger: pino({ level: 'silent' }),
       printQRInTerminal: false,
-      browser: ['Ubuntu', 'Chrome', '20.0.04'],
-      markOnlineOnConnect: false
+      browser: ['NelsonFxBot', 'Safari', '3.0'],
+      markOnlineOnConnect: true,
+      keepAliveIntervalMs: 30000,
     })
 
     sock.ev.on('creds.update', saveCreds)
@@ -489,8 +490,9 @@ app.get('/qr', async (req, res) => {
       },
       logger: pino({ level: 'silent' }),
       printQRInTerminal: false,
-      browser: ['Ubuntu', 'Chrome', '20.0.04'],
-      markOnlineOnConnect: false
+      browser: ['NelsonFxBot', 'Safari', '3.0'],
+      markOnlineOnConnect: true,
+      keepAliveIntervalMs: 30000,
     })
 
     sock.ev.on('creds.update', saveCreds)
