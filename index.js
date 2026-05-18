@@ -6,7 +6,8 @@ const {
   useMultiFileAuthState,
   DisconnectReason,
   fetchLatestBaileysVersion,
-  makeCacheableSignalKeyStore
+  makeCacheableSignalKeyStore,
+  Browsers
 } = require('@whiskeysockets/baileys')
 const pino = require('pino')
 const { Boom } = require('@hapi/boom')
@@ -20,22 +21,21 @@ app.use(cors())
 app.use(express.json())
 app.use(express.urlencoded({ extended: true }))
 
+// ===========================
+// Session Store
+// ===========================
 const sessions = new Map()
 
-const cleanSession = async (sessionId) => {
+const cleanSession = async (id) => {
   try {
-    const sessionPath = path.join(__dirname, 'sessions', sessionId)
-    if (fs.existsSync(sessionPath)) {
-      await fs.remove(sessionPath)
-    }
-    sessions.delete(sessionId)
-  } catch {
-    // silently fail
-  }
+    const p = path.join(__dirname, 'sessions', id)
+    if (fs.existsSync(p)) await fs.remove(p)
+    sessions.delete(id)
+  } catch {}
 }
 
 // ===========================
-// Main Page
+// HTML Page
 // ===========================
 app.get('/', (req, res) => {
   res.send(`
@@ -49,7 +49,7 @@ app.get('/', (req, res) => {
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body {
       font-family: 'Segoe UI', sans-serif;
-      background: linear-gradient(135deg, #0a0a0a 0%, #1a1a2e 50%, #16213e 100%);
+      background: linear-gradient(135deg, #0a0a0a, #1a1a2e, #16213e);
       min-height: 100vh;
       display: flex;
       align-items: center;
@@ -59,8 +59,7 @@ app.get('/', (req, res) => {
     .container { max-width: 480px; width: 90%; text-align: center; }
     .logo { font-size: 48px; margin-bottom: 10px; }
     h1 {
-      font-size: 28px;
-      font-weight: 700;
+      font-size: 28px; font-weight: 700;
       background: linear-gradient(90deg, #25d366, #128c7e);
       -webkit-background-clip: text;
       -webkit-text-fill-color: transparent;
@@ -70,24 +69,21 @@ app.get('/', (req, res) => {
     .card {
       background: rgba(255,255,255,0.05);
       border: 1px solid rgba(255,255,255,0.1);
-      border-radius: 20px;
-      padding: 30px;
+      border-radius: 20px; padding: 30px;
       margin-bottom: 20px;
-      backdrop-filter: blur(10px);
     }
-    .method-title { font-size: 18px; font-weight: 600; margin-bottom: 20px; color: #25d366; }
     .tabs {
       display: flex;
       background: rgba(0,0,0,0.3);
-      border-radius: 12px;
-      padding: 4px;
+      border-radius: 12px; padding: 4px;
       margin-bottom: 24px;
     }
     .tab {
       flex: 1; padding: 10px; border: none;
       background: transparent; color: #aaa;
       border-radius: 10px; cursor: pointer;
-      font-size: 14px; font-weight: 600; transition: all 0.3s;
+      font-size: 14px; font-weight: 600;
+      transition: all 0.3s;
     }
     .tab.active { background: #25d366; color: white; }
     .tab-content { display: none; }
@@ -98,7 +94,7 @@ app.get('/', (req, res) => {
       border: 1px solid rgba(255,255,255,0.15);
       border-radius: 12px; color: white;
       font-size: 15px; margin-bottom: 14px;
-      outline: none; transition: border 0.3s;
+      outline: none;
     }
     input:focus { border-color: #25d366; }
     input::placeholder { color: #666; }
@@ -110,116 +106,102 @@ app.get('/', (req, res) => {
       font-weight: 700; cursor: pointer;
       transition: all 0.3s;
     }
-    .btn:hover { transform: translateY(-2px); box-shadow: 0 8px 25px rgba(37,211,102,0.3); }
-    .btn:disabled { opacity: 0.6; cursor: not-allowed; transform: none; }
-    .qr-container { display: none; margin-top: 20px; }
-    .qr-container img { width: 220px; height: 220px; border-radius: 12px; border: 3px solid #25d366; }
-    .qr-text { color: #aaa; font-size: 13px; margin-top: 10px; }
+    .btn:disabled { opacity: 0.6; cursor: not-allowed; }
+    .code-display {
+      font-size: 36px; font-weight: 900;
+      letter-spacing: 10px; color: #25d366;
+      background: rgba(0,0,0,0.5);
+      border-radius: 12px; padding: 20px;
+      margin: 16px 0; font-family: monospace;
+      border: 2px dashed #25d366;
+    }
+    .qr-box { display: none; margin-top: 20px; }
+    .qr-box img {
+      width: 230px; height: 230px;
+      border-radius: 12px;
+      border: 3px solid #25d366;
+    }
     .session-box {
       display: none; margin-top: 20px;
       background: rgba(37,211,102,0.1);
-      border: 1px solid #25d366;
+      border: 2px solid #25d366;
       border-radius: 12px; padding: 20px;
     }
-    .session-box h3 { color: #25d366; margin-bottom: 10px; font-size: 16px; }
     .session-id {
-      background: rgba(0,0,0,0.4); border-radius: 8px;
-      padding: 12px; font-size: 11px;
-      word-break: break-all; color: #fff;
-      margin-bottom: 12px; font-family: monospace;
-      max-height: 100px; overflow-y: auto;
+      background: rgba(0,0,0,0.5);
+      border-radius: 8px; padding: 12px;
+      font-size: 11px; word-break: break-all;
+      color: #fff; margin: 12px 0;
+      font-family: monospace;
+      max-height: 120px; overflow-y: auto;
+      text-align: left;
     }
     .copy-btn {
       background: #25d366; border: none;
-      border-radius: 8px; padding: 10px 20px;
-      color: white; font-weight: 600;
-      cursor: pointer; font-size: 14px; transition: all 0.3s;
+      border-radius: 8px; padding: 12px 24px;
+      color: white; font-weight: 700;
+      cursor: pointer; font-size: 15px;
     }
-    .copy-btn:hover { background: #128c7e; }
-    .status {
+    .msg {
       margin-top: 14px; padding: 12px;
       border-radius: 8px; font-size: 13px;
-      font-weight: 600; display: none;
-      line-height: 1.6;
+      display: none; line-height: 1.6;
     }
-    .status.info { background: rgba(37,211,102,0.15); color: #25d366; display: block; }
-    .status.error { background: rgba(255,50,50,0.15); color: #ff6b6b; display: block; }
-    .pairing-code-display {
-      font-size: 32px;
-      font-weight: 900;
-      letter-spacing: 8px;
-      color: #25d366;
-      background: rgba(0,0,0,0.4);
-      border-radius: 12px;
-      padding: 16px;
-      margin: 12px 0;
-      font-family: monospace;
-    }
-    .footer { color: #555; font-size: 12px; margin-top: 20px; }
-    .footer a { color: #25d366; text-decoration: none; }
+    .msg.info { background: rgba(37,211,102,0.15); color: #25d366; display: block; }
+    .msg.error { background: rgba(255,80,80,0.15); color: #ff7070; display: block; }
     .loader {
-      display: inline-block; width: 18px; height: 18px;
+      display: inline-block; width: 16px; height: 16px;
       border: 2px solid rgba(255,255,255,0.3);
       border-top-color: white; border-radius: 50%;
       animation: spin 0.8s linear infinite;
-      vertical-align: middle; margin-right: 8px;
+      vertical-align: middle; margin-right: 6px;
     }
     @keyframes spin { to { transform: rotate(360deg); } }
+    .footer { color: #444; font-size: 12px; margin-top: 16px; }
+    .footer a { color: #25d366; text-decoration: none; }
   </style>
 </head>
 <body>
 <div class="container">
   <div class="logo">🤖</div>
   <h1>NelsonFxBot</h1>
-  <p class="subtitle">Session ID Generator</p>
+  <p class="subtitle">Session Generator — Connect your WhatsApp</p>
 
   <div class="card">
-    <div class="method-title">Choose Connection Method</div>
     <div class="tabs">
-      <button class="tab active" onclick="switchTab('pairing', this)">📱 Pairing Code</button>
-      <button class="tab" onclick="switchTab('qr', this)">📷 QR Code</button>
+      <button class="tab active" onclick="switchTab('pairing',this)">📱 Pairing Code</button>
+      <button class="tab" onclick="switchTab('qr',this)">📷 QR Code</button>
     </div>
 
     <!-- Pairing Tab -->
     <div class="tab-content active" id="pairing-tab">
-      <input
-        type="tel"
-        id="phone-input"
-        placeholder="Number with country code e.g 2349138567333"
-      />
-      <button class="btn" id="pairing-btn" onclick="getPairingCode()">
-        Get Pairing Code
-      </button>
-      <div id="pairing-code-box" style="display:none">
-        <p style="color:#aaa; font-size:13px; margin-top:14px;">Your Pairing Code:</p>
-        <div class="pairing-code-display" id="pairing-code-text"></div>
-        <p style="color:#aaa; font-size:12px;">
-          WhatsApp → Linked Devices → Link with phone number → Enter code above
-        </p>
+      <input type="tel" id="phone" placeholder="Number with country code e.g 2349138567333"/>
+      <button class="btn" id="p-btn" onclick="getPairing()">Get Pairing Code</button>
+      <div id="code-box" style="display:none">
+        <p style="color:#aaa;font-size:13px;margin-top:14px">Enter this code in WhatsApp:</p>
+        <div class="code-display" id="code-text"></div>
+        <p style="color:#777;font-size:12px">WhatsApp → ⋮ Menu → Linked Devices → Link a Device → Link with phone number</p>
       </div>
-      <div class="status" id="pairing-status"></div>
+      <div class="msg" id="p-msg"></div>
     </div>
 
     <!-- QR Tab -->
     <div class="tab-content" id="qr-tab">
-      <button class="btn" id="qr-btn" onclick="getQRCode()">
-        Generate QR Code
-      </button>
-      <div class="qr-container" id="qr-container">
-        <img id="qr-image" src="" alt="QR Code"/>
-        <p class="qr-text">WhatsApp → Linked Devices → Link a Device → Scan QR</p>
+      <button class="btn" id="q-btn" onclick="getQR()">Generate QR Code</button>
+      <div class="qr-box" id="qr-box">
+        <img id="qr-img" src="" alt="QR"/>
+        <p style="color:#aaa;font-size:12px;margin-top:10px">WhatsApp → ⋮ Menu → Linked Devices → Link a Device → Scan QR</p>
       </div>
-      <div class="status" id="qr-status"></div>
+      <div class="msg" id="q-msg"></div>
     </div>
 
     <!-- Session Result -->
     <div class="session-box" id="session-box">
-      <h3>✅ Connected! Copy Your SESSION_ID</h3>
-      <div class="session-id" id="session-id-text"></div>
-      <button class="copy-btn" onclick="copySession()">📋 Copy SESSION_ID</button>
-      <p style="color:#aaa; font-size:12px; margin-top:10px;">
-        Paste this in your config.env as SESSION_ID
-      </p>
+      <h3 style="color:#25d366;margin-bottom:8px">✅ Session Generated!</h3>
+      <p style="color:#aaa;font-size:12px">Copy your SESSION_ID below:</p>
+      <div class="session-id" id="sid"></div>
+      <button class="copy-btn" onclick="copy()">📋 Copy SESSION_ID</button>
+      <p style="color:#777;font-size:11px;margin-top:10px">Paste as SESSION_ID in your config.env</p>
     </div>
   </div>
 
@@ -229,140 +211,101 @@ app.get('/', (req, res) => {
 </div>
 
 <script>
-  let currentSessionId = null
+  let sid = null
 
   function switchTab(tab, el) {
     document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'))
     document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'))
-    document.getElementById(tab + '-tab').classList.add('active')
     el.classList.add('active')
+    document.getElementById(tab + '-tab').classList.add('active')
   }
 
-  async function getPairingCode() {
-    const phone = document.getElementById('phone-input').value.trim().replace(/[^0-9]/g, '')
-    const status = document.getElementById('pairing-status')
-    const btn = document.getElementById('pairing-btn')
-    const codeBox = document.getElementById('pairing-code-box')
+  function setMsg(id, type, text) {
+    const el = document.getElementById(id)
+    el.className = 'msg ' + type
+    el.innerHTML = text
+  }
 
+  async function getPairing() {
+    const phone = document.getElementById('phone').value.replace(/[^0-9]/g, '')
     if (!phone || phone.length < 10) {
-      status.className = 'status error'
-      status.textContent = '❌ Enter a valid phone number with country code!'
-      return
+      return setMsg('p-msg', 'error', '❌ Enter valid number with country code!')
     }
-
+    const btn = document.getElementById('p-btn')
     btn.disabled = true
-    btn.innerHTML = '<span class="loader"></span> Connecting to WhatsApp...'
-    status.className = 'status info'
-    status.textContent = '⏳ Please wait, connecting...'
-    codeBox.style.display = 'none'
+    btn.innerHTML = '<span class="loader"></span>Connecting...'
+    document.getElementById('code-box').style.display = 'none'
+    setMsg('p-msg', 'info', '⏳ Connecting to WhatsApp servers...')
 
     try {
       const res = await fetch('/pairing?phone=' + phone)
       const data = await res.json()
-
       if (data.error) throw new Error(data.error)
-
-      if (data.code) {
-        document.getElementById('pairing-code-text').textContent = data.code
-        codeBox.style.display = 'block'
-        status.className = 'status info'
-        status.textContent = '⏳ Waiting for you to enter the code in WhatsApp...'
-        btn.innerHTML = '<span class="loader"></span> Waiting for connection...'
-        pollSession(data.sessionId)
-      }
-    } catch (err) {
-      status.className = 'status error'
-      status.textContent = '❌ ' + err.message
+      document.getElementById('code-text').textContent = data.code
+      document.getElementById('code-box').style.display = 'block'
+      setMsg('p-msg', 'info', '⏳ Waiting for you to enter the code...')
+      poll(data.sid, 'p-msg', btn, 'Get Pairing Code')
+    } catch(e) {
+      setMsg('p-msg', 'error', '❌ ' + e.message)
       btn.disabled = false
       btn.innerHTML = 'Get Pairing Code'
     }
   }
 
-  async function getQRCode() {
-    const status = document.getElementById('qr-status')
-    const btn = document.getElementById('qr-btn')
-    const qrContainer = document.getElementById('qr-container')
-
+  async function getQR() {
+    const btn = document.getElementById('q-btn')
     btn.disabled = true
-    btn.innerHTML = '<span class="loader"></span> Generating QR...'
-    status.className = 'status info'
-    status.textContent = '⏳ Generating QR code...'
+    btn.innerHTML = '<span class="loader"></span>Generating...'
+    setMsg('q-msg', 'info', '⏳ Generating QR code...')
 
     try {
       const res = await fetch('/qr')
       const data = await res.json()
-
       if (data.error) throw new Error(data.error)
-
-      if (data.qr) {
-        document.getElementById('qr-image').src = data.qr
-        qrContainer.style.display = 'block'
-        status.className = 'status info'
-        status.textContent = '📷 Scan the QR code now! It expires in 60 seconds.'
-        btn.innerHTML = '<span class="loader"></span> Waiting for scan...'
-        pollSession(data.sessionId)
-      }
-    } catch (err) {
-      status.className = 'status error'
-      status.textContent = '❌ ' + err.message
+      document.getElementById('qr-img').src = data.qr
+      document.getElementById('qr-box').style.display = 'block'
+      setMsg('q-msg', 'info', '📷 Scan now! QR expires in 60 seconds.')
+      poll(data.sid, 'q-msg', btn, 'Generate QR Code')
+    } catch(e) {
+      setMsg('q-msg', 'error', '❌ ' + e.message)
       btn.disabled = false
       btn.innerHTML = 'Generate QR Code'
     }
   }
 
-  async function pollSession(sessionId) {
-    let attempts = 0
-    const maxAttempts = 80
-
-    const interval = setInterval(async () => {
-      attempts++
-      if (attempts > maxAttempts) {
-        clearInterval(interval)
-        const status = document.getElementById('pairing-status') || document.getElementById('qr-status')
-        if (status) {
-          status.className = 'status error'
-          status.textContent = '❌ Timeout! Please try again.'
-        }
-        const btn = document.getElementById('pairing-btn') || document.getElementById('qr-btn')
-        if (btn) { btn.disabled = false; btn.innerHTML = 'Try Again' }
+  function poll(id, msgId, btn, btnText) {
+    let tries = 0
+    const t = setInterval(async () => {
+      tries++
+      if (tries > 100) {
+        clearInterval(t)
+        setMsg(msgId, 'error', '❌ Timeout. Please try again.')
+        btn.disabled = false
+        btn.innerHTML = btnText
         return
       }
-
       try {
-        const res = await fetch('/session?id=' + sessionId)
-        const data = await res.json()
-        if (data.sessionId) {
-          clearInterval(interval)
-          showSession(data.sessionId)
+        const r = await fetch('/check?sid=' + id)
+        const d = await r.json()
+        if (d.done) {
+          clearInterval(t)
+          document.getElementById('sid').textContent = d.session
+          document.getElementById('session-box').style.display = 'block'
+          setMsg(msgId, 'info', '✅ Successfully connected!')
+          btn.disabled = false
+          btn.innerHTML = btnText
+          sid = d.session
         }
-      } catch {
-        // keep polling
-      }
+      } catch {}
     }, 3000)
   }
 
-  function showSession(id) {
-    currentSessionId = id
-    document.getElementById('session-id-text').textContent = id
-    document.getElementById('session-box').style.display = 'block'
-
-    const pStatus = document.getElementById('pairing-status')
-    const qStatus = document.getElementById('qr-status')
-    if (pStatus) { pStatus.className = 'status info'; pStatus.textContent = '✅ Connected successfully!' }
-    if (qStatus) { qStatus.className = 'status info'; qStatus.textContent = '✅ Connected successfully!' }
-
-    const pBtn = document.getElementById('pairing-btn')
-    const qBtn = document.getElementById('qr-btn')
-    if (pBtn) { pBtn.disabled = false; pBtn.innerHTML = 'Get Pairing Code' }
-    if (qBtn) { qBtn.disabled = false; qBtn.innerHTML = 'Generate QR Code' }
-  }
-
-  function copySession() {
-    if (!currentSessionId) return
-    navigator.clipboard.writeText(currentSessionId).then(() => {
-      const btn = document.querySelector('.copy-btn')
-      btn.textContent = '✅ Copied!'
-      setTimeout(() => { btn.textContent = '📋 Copy SESSION_ID' }, 2000)
+  function copy() {
+    if (!sid) return
+    navigator.clipboard.writeText(sid).then(() => {
+      const b = document.querySelector('.copy-btn')
+      b.textContent = '✅ Copied!'
+      setTimeout(() => b.textContent = '📋 Copy SESSION_ID', 2000)
     })
   }
 </script>
@@ -372,227 +315,175 @@ app.get('/', (req, res) => {
 })
 
 // ===========================
-// Pairing Code Route
+// Create Socket Helper
+// ===========================
+const createSocket = async (sessionPath) => {
+  const { state, saveCreds } = await useMultiFileAuthState(sessionPath)
+  const { version } = await fetchLatestBaileysVersion()
+
+  const sock = makeWASocket({
+    version,
+    auth: {
+      creds: state.creds,
+      keys: makeCacheableSignalKeyStore(
+        state.keys,
+        pino({ level: 'silent' })
+      )
+    },
+    logger: pino({ level: 'silent' }),
+    printQRInTerminal: false,
+    browser: Browsers.macOS('Desktop'),
+    syncFullHistory: false,
+    markOnlineOnConnect: false,
+    connectTimeoutMs: 60000,
+    keepAliveIntervalMs: 10000,
+    retryRequestDelayMs: 250
+  })
+
+  sock.ev.on('creds.update', saveCreds)
+  return { sock, state, saveCreds }
+}
+
+// ===========================
+// Build Session String
+// ===========================
+const buildSessionString = (state) => {
+  try {
+    const data = JSON.stringify(state.creds)
+    return 'NELSONFX~' + Buffer.from(data).toString('base64')
+  } catch {
+    return null
+  }
+}
+
+// ===========================
+// Pairing Route
 // ===========================
 app.get('/pairing', async (req, res) => {
   const phone = req.query.phone?.replace(/[^0-9]/g, '')
   if (!phone) return res.json({ error: 'Phone number required' })
 
-  const sessionId = 'sess_' + Date.now()
-  const sessionPath = path.join(__dirname, 'sessions', sessionId)
+  const sid = 'p_' + Date.now()
+  const sessionPath = path.join(__dirname, 'sessions', sid)
 
   try {
     await fs.ensureDir(sessionPath)
-    const { state, saveCreds } = await useMultiFileAuthState(sessionPath)
-    const { version } = await fetchLatestBaileysVersion()
+    const { sock, state } = await createSocket(sessionPath)
 
-    const sock = makeWASocket({
-      version,
-      auth: {
-        creds: state.creds,
-        keys: makeCacheableSignalKeyStore(state.keys, pino({ level: 'silent' }))
-      },
-      logger: pino({ level: 'silent' }),
-      printQRInTerminal: false,
-      browser: ['NelsonFxBot', 'Safari', '3.0'],
-      markOnlineOnConnect: true,
-      keepAliveIntervalMs: 30000,
-    })
+    sessions.set(sid, { sock, state, done: false, session: null })
 
-    sock.ev.on('creds.update', saveCreds)
+    // Wait for socket to be ready then request code
+    await new Promise(r => setTimeout(r, 3000))
 
-    sessions.set(sessionId, {
-      sock,
-      state,
-      connected: false,
-      sessionId: null
-    })
+    let code
+    try {
+      code = await sock.requestPairingCode(phone)
+    } catch (err) {
+      await cleanSession(sid)
+      return res.json({ error: 'Could not get pairing code: ' + err.message })
+    }
 
-    // Request pairing code after socket ready
-    setTimeout(async () => {
-      try {
-        if (!sock.authState.creds.registered) {
-          const code = await sock.requestPairingCode(phone)
-          const formatted = code?.match(/.{1,4}/g)?.join('-') || code
-          res.json({ code: formatted, sessionId })
-        } else {
-          res.json({ error: 'Number already registered. Use QR method.' })
-        }
-      } catch (err) {
-        res.json({ error: err.message })
-        await cleanSession(sessionId)
+    // Format code nicely
+    const formatted = code?.replace(/(.{4})/g, '$1-').slice(0, -1) || code
+
+    sock.ev.on('connection.update', async ({ connection }) => {
+      if (connection === 'open') {
+        const session = buildSessionString(state)
+        const s = sessions.get(sid)
+        if (s) { s.done = true; s.session = session }
+        setTimeout(() => cleanSession(sid), 120000)
       }
-    }, 3000)
+      if (connection === 'close') {
+        sessions.delete(sid)
+      }
+    })
 
-    sock.ev.on('connection.update', async (update) => {
-      const { connection, lastDisconnect } = update
+    res.json({ code: formatted, sid })
+  } catch (err) {
+    await cleanSession(sid)
+    res.json({ error: err.message })
+  }
+})
+
+// ===========================
+// QR Route
+// ===========================
+app.get('/qr', async (req, res) => {
+  const sid = 'q_' + Date.now()
+  const sessionPath = path.join(__dirname, 'sessions', sid)
+  let responded = false
+
+  try {
+    await fs.ensureDir(sessionPath)
+    const { sock, state } = await createSocket(sessionPath)
+
+    sessions.set(sid, { sock, state, done: false, session: null })
+
+    sock.ev.on('connection.update', async ({ connection, qr }) => {
+      if (qr && !responded) {
+        responded = true
+        try {
+          const qrImage = await qrcode.toDataURL(qr)
+          res.json({ qr: qrImage, sid })
+        } catch (err) {
+          res.json({ error: err.message })
+        }
+      }
 
       if (connection === 'open') {
-        try {
-          const creds = JSON.stringify(state.creds)
-          const sessionString = 'NELSONFX_' + Buffer.from(creds).toString('base64')
-          const sessionData = sessions.get(sessionId)
-          if (sessionData) {
-            sessionData.connected = true
-            sessionData.sessionId = sessionString
-          }
-
-          // Send session to bot number
-          await sock.sendMessage(sock.user.id, {
-            text:
-              `✅ *NelsonFxBot Session Generated!*\n\n` +
-              `Your SESSION_ID:\n\n` +
-              `${sessionString}\n\n` +
-              `_Save this safely — do not share it!_`
-          })
-
-          setTimeout(() => cleanSession(sessionId), 120000)
-        } catch (err) {
-          console.error('Session save error:', err.message)
-        }
+        const session = buildSessionString(state)
+        const s = sessions.get(sid)
+        if (s) { s.done = true; s.session = session }
+        setTimeout(() => cleanSession(sid), 120000)
       }
 
       if (connection === 'close') {
-        const code = new Boom(lastDisconnect?.error)?.output?.statusCode
-        if (code !== DisconnectReason.loggedOut) {
-          // reconnect silently
-        } else {
-          await cleanSession(sessionId)
-        }
+        sessions.delete(sid)
       }
     })
 
+    // Timeout
+    setTimeout(() => {
+      if (!responded) {
+        responded = true
+        cleanSession(sid)
+        res.json({ error: 'Timeout generating QR. Try again.' })
+      }
+    }, 20000)
+
   } catch (err) {
-    await cleanSession(sessionId)
-    if (!res.headersSent) res.json({ error: err.message })
+    await cleanSession(sid)
+    if (!responded) res.json({ error: err.message })
   }
 })
 
 // ===========================
-// QR Code Route
+// Check Session Route
 // ===========================
-app.get('/qr', async (req, res) => {
-  const sessionId = 'sess_' + Date.now()
-  const sessionPath = path.join(__dirname, 'sessions', sessionId)
-
-  try {
-    await fs.ensureDir(sessionPath)
-    const { state, saveCreds } = await useMultiFileAuthState(sessionPath)
-    const { version } = await fetchLatestBaileysVersion()
-
-    let qrSent = false
-
-    const sock = makeWASocket({
-      version,
-      auth: {
-        creds: state.creds,
-        keys: makeCacheableSignalKeyStore(state.keys, pino({ level: 'silent' }))
-      },
-      logger: pino({ level: 'silent' }),
-      printQRInTerminal: false,
-      browser: ['NelsonFxBot', 'Safari', '3.0'],
-      markOnlineOnConnect: true,
-      keepAliveIntervalMs: 30000,
-    })
-
-    sock.ev.on('creds.update', saveCreds)
-
-    sessions.set(sessionId, {
-      sock, state,
-      connected: false,
-      sessionId: null
-    })
-
-    sock.ev.on('connection.update', async (update) => {
-      const { connection, qr } = update
-
-      if (qr && !qrSent) {
-        qrSent = true
-        try {
-          const qrImage = await qrcode.toDataURL(qr)
-          const sessionData = sessions.get(sessionId)
-          if (sessionData) sessionData.qr = qrImage
-          if (!res.headersSent) res.json({ qr: qrImage, sessionId })
-        } catch (err) {
-          if (!res.headersSent) res.json({ error: err.message })
-        }
-      }
-
-      if (connection === 'open') {
-        try {
-          const creds = JSON.stringify(state.creds)
-          const sessionString = 'NELSONFX_' + Buffer.from(creds).toString('base64')
-          const sessionData = sessions.get(sessionId)
-          if (sessionData) {
-            sessionData.connected = true
-            sessionData.sessionId = sessionString
-          }
-
-          await sock.sendMessage(sock.user.id, {
-            text:
-              `✅ *NelsonFxBot Session Generated!*\n\n` +
-              `Your SESSION_ID:\n\n` +
-              `${sessionString}\n\n` +
-              `_Save this safely — do not share it!_`
-          })
-
-          setTimeout(() => cleanSession(sessionId), 120000)
-        } catch (err) {
-          console.error('Session save error:', err.message)
-        }
-      }
-    })
-
-    // Timeout if no QR generated
-    setTimeout(async () => {
-      if (!qrSent && !res.headersSent) {
-        await cleanSession(sessionId)
-        res.json({ error: 'QR generation timeout. Try again.' })
-      }
-    }, 15000)
-
-  } catch (err) {
-    await cleanSession(sessionId)
-    if (!res.headersSent) res.json({ error: err.message })
-  }
-})
-
-// ===========================
-// Session Status Route
-// ===========================
-app.get('/session', (req, res) => {
-  const { id } = req.query
-  if (!id) return res.json({ error: 'Session ID required' })
-
-  const sessionData = sessions.get(id)
-  if (!sessionData) return res.json({ waiting: true })
-
-  if (sessionData.connected && sessionData.sessionId) {
-    return res.json({ sessionId: sessionData.sessionId })
-  }
-
-  res.json({ waiting: true })
+app.get('/check', (req, res) => {
+  const { sid } = req.query
+  if (!sid) return res.json({ done: false })
+  const s = sessions.get(sid)
+  if (!s) return res.json({ done: false })
+  if (s.done && s.session) return res.json({ done: true, session: s.session })
+  res.json({ done: false })
 })
 
 // ===========================
 // Health Check
 // ===========================
 app.get('/health', (req, res) => {
-  res.json({
-    status: 'ok',
-    bot: 'NelsonFxBot Session Generator',
-    uptime: process.uptime()
-  })
+  res.json({ status: 'ok', sessions: sessions.size })
 })
 
 // ===========================
-// Start Server
+// Start
 // ===========================
 const PORT = process.env.PORT || 3000
 app.listen(PORT, () => {
   console.log('╔══════════════════════════════════╗')
   console.log('║   NelsonFxBot Session Generator  ║')
-  console.log('║   Running on port ' + PORT + '          ║')
+  console.log('║   Port: ' + PORT + '                    ║')
   console.log('║   Made by NelsonFx               ║')
   console.log('╚══════════════════════════════════╝')
 })
