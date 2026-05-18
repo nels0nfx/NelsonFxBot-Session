@@ -348,17 +348,26 @@ app.get('/api/pairing', async (req, res) => {
     const { state, saveCreds } = await useMultiFileAuthState(sessionPath)
     const { version } = await fetchLatestBaileysVersion()
 
-    const sock = makeWASocket({
-      version,
+        const sock = makeWASocket({
+      version: [2, 3000, 1015901307],
       auth: {
         creds: state.creds,
         keys: makeCacheableSignalKeyStore(state.keys, pino({ level: 'silent' }))
       },
       logger: pino({ level: 'silent' }),
       printQRInTerminal: false,
-      browser: Browsers.macOS('Desktop'),
+      browser: ['NelsonFxBot', 'Chrome', '121.0.0'],
       syncFullHistory: false,
-      markOnlineOnConnect: false
+      markOnlineOnConnect: false,
+      connectTimeoutMs: 60000,
+      keepAliveIntervalMs: 10000,
+      fireInitQueries: false,
+      emitOwnEvents: true,
+      retryRequestDelayMs: 250,
+      transactionOpts: {
+        maxCommitRetries: 10,
+        delayBetweenTriesMs: 3000
+      }
     })
 
     sock.ev.on('creds.update', saveCreds)
@@ -424,17 +433,26 @@ app.get('/api/qr', async (req, res) => {
     const { state, saveCreds } = await useMultiFileAuthState(sessionPath)
     const { version } = await fetchLatestBaileysVersion()
 
-    const sock = makeWASocket({
-      version,
+        const sock = makeWASocket({
+      version: [2, 3000, 1015901307],
       auth: {
         creds: state.creds,
         keys: makeCacheableSignalKeyStore(state.keys, pino({ level: 'silent' }))
       },
       logger: pino({ level: 'silent' }),
       printQRInTerminal: false,
-      browser: Browsers.macOS('Desktop'),
+      browser: ['NelsonFxBot', 'Chrome', '121.0.0'],
       syncFullHistory: false,
-      markOnlineOnConnect: false
+      markOnlineOnConnect: false,
+      connectTimeoutMs: 60000,
+      keepAliveIntervalMs: 10000,
+      fireInitQueries: false,
+      emitOwnEvents: true,
+      retryRequestDelayMs: 250,
+      transactionOpts: {
+        maxCommitRetries: 10,
+        delayBetweenTriesMs: 3000
+      }
     })
 
     sock.ev.on('creds.update', saveCreds)
